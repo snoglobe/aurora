@@ -25,19 +25,20 @@ class AuroraContext {
     Token eat(TokenType type);
 
     AuroraObj lookupVariable(const std::string &name) {
-        if (locals.empty()) {
-            if (globals.find(name) == globals.end()) throw AuroraException("Undefined variable " + name + ".");
-            return globals[name];
-        }
-        auto search = locals.end() - 1;
-        while (search->find(name) == search->end()) {
-            if (search == locals.begin()) {
-                if (globals.find(name) == globals.end()) throw AuroraException("Undefined variable " + name + ".");
-                return globals[name];
+        // decend downards through locals
+        // if not found, return global
+        if(!locals.empty()) {
+            for (int i = locals.size() - 1; i >= 0; i--) {
+                if(locals[i].find(name) != locals[i].end()) {
+                    return locals[i][name];
+                }
             }
-            search--;
         }
-        return (*search)[name];
+        if (globals.find(name) != globals.end()) {
+            return globals[name];
+        } else {
+            throw AuroraException("Undefined variable '" + name + "'.");
+        }
     }
 
     void setVariable(const std::string &name, const AuroraObj& value) {
@@ -45,20 +46,12 @@ class AuroraContext {
             globals[name] = value;
             return;
         }
-        auto search = locals.end() - 1;
-        while (search->find(name) == search->end()) {
-            if (search == locals.begin()) {
-                if (globals.find(name) == globals.end()) {
-                    locals.back()[name] = value;
-                    return;
-                } else {
-                    globals[name] = value;
-                    return;
-                }
+        for (int i = locals.size() - 1; i >= 0; i--) {
+            if(locals[i].find(name) != locals[i].end()) {
+                locals[i][name] = value;
+                return;
             }
-            search--;
         }
-        (*search)[name] = value;
     }
 
 public:

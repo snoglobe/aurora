@@ -4,6 +4,7 @@
 
 #include "context.h"
 #include <iostream>
+#include <list>
 
 std::string tokenTypeToString(TokenType type) {
     switch (type) {
@@ -107,6 +108,7 @@ void AuroraContext::run() {
     while (current.type != TokenType::EOF_) {
         statement();
     }
+    currentCodeUnit.emit(InstructionType::END);
     execute(currentCodeUnit);
 }
 
@@ -138,10 +140,10 @@ Token AuroraContext::eat(TokenType type) {
 
 std::vector<std::string> AuroraContext::idList() {
     std::vector<std::string> ids;
-    ids.push_back(eat(TokenType::IDENTIFIER).lexeme);
+    ids.emplace_back(eat(TokenType::IDENTIFIER).lexeme);
     while (peek(TokenType::COMMA)) {
         eat(TokenType::COMMA);
-        ids.push_back(eat(TokenType::IDENTIFIER).lexeme);
+        ids.emplace_back(eat(TokenType::IDENTIFIER).lexeme);
     }
     return ids;
 }
@@ -316,6 +318,7 @@ void AuroraContext::if_statement() {
         while (!peek(TokenType::ELSE) && !peek(TokenType::END)) {
             statement();
         }
+        currentCodeUnit.emit(InstructionType::END);
         auto ifBlock = currentCodeUnit;
         auto elseBlock = AuroraCodeUnit();
         if (peek(TokenType::ELSE)) {
@@ -325,6 +328,7 @@ void AuroraContext::if_statement() {
             while (!peek(TokenType::END)) {
                 statement();
             }
+            currentCodeUnit.emit(InstructionType::END);
             elseBlock = currentCodeUnit;
         }
         currentCodeUnit = prev;
@@ -337,13 +341,17 @@ void AuroraContext::if_statement() {
         auto prev = currentCodeUnit;
         currentCodeUnit = AuroraCodeUnit();
         statement();
+        currentCodeUnit.emit(InstructionType::END);
         auto ifBlock = currentCodeUnit;
         auto elseBlock = AuroraCodeUnit();
         if (peek(TokenType::ELSE)) {
             eat(TokenType::ELSE);
             currentCodeUnit = AuroraCodeUnit();
             statement();
+            currentCodeUnit.emit(InstructionType::END);
             elseBlock = currentCodeUnit;
+        } else {
+            elseBlock.emit(InstructionType::END);
         }
         currentCodeUnit = prev;
         currentCodeUnit.emit(InstructionType::PUSH, currentCodeUnit.getConstantIndex(AuroraObj(elseBlock)));
@@ -367,6 +375,7 @@ void AuroraContext::while_statement() {
         while (!peek(TokenType::END)) {
             statement();
         }
+        currentCodeUnit.emit(InstructionType::END);
         auto body = currentCodeUnit;
         currentCodeUnit = prev;
         eat(TokenType::END);
@@ -377,6 +386,7 @@ void AuroraContext::while_statement() {
     } else {
         currentCodeUnit = AuroraCodeUnit();
         statement();
+        currentCodeUnit.emit(InstructionType::END);
         auto body = currentCodeUnit;
         currentCodeUnit = prev;
         currentCodeUnit.emit(InstructionType::PUSH, currentCodeUnit.getConstantIndex(AuroraObj(cond)));
@@ -397,6 +407,7 @@ void AuroraContext::for_statement() {
         while (!peek(TokenType::END)) {
             statement();
         }
+        currentCodeUnit.emit(InstructionType::END);
         auto body = currentCodeUnit;
         currentCodeUnit = prev;
         eat(TokenType::END);
@@ -405,6 +416,7 @@ void AuroraContext::for_statement() {
         currentCodeUnit.emit(InstructionType::FLOOP, currentCodeUnit.getConstantIndex(AuroraObj(name)));
     } else {
         statement();
+        currentCodeUnit.emit(InstructionType::END);
         auto body = currentCodeUnit;
         currentCodeUnit = prev;
         currentCodeUnit.emit(InstructionType::PUSH, currentCodeUnit.getConstantIndex(AuroraObj(body)));
@@ -633,8 +645,7 @@ void AuroraContext::statement() {
 #define DISPATCH goto *dispatchTable[(int)unit.instructions[++pc].type]
 
 AuroraObj AuroraContext::execute(AuroraCodeUnit unit) {
-    unit.emit(InstructionType::END);
-    std::stack<AuroraObj> stack{};
+    std::vector<AuroraObj> stack{};
     static void *dispatchTable[] = {
             &&PUSH, &&PUSHI, &&TRUE, &&FALSE, &&POP, &&ADD,
             &&SUB, &&MUL, &&DIV, &&MOD, &&NEG, &&NOT,
@@ -646,184 +657,184 @@ AuroraObj AuroraContext::execute(AuroraCodeUnit unit) {
     int pc = -1;
     DISPATCH;
     PUSH:
-    stack.push(unit.constants[unit.instructions[pc].operand]);
+    stack.emplace_back(unit.constants[unit.instructions[pc].operand]);
     DISPATCH;
     PUSHI:
-    stack.push(AuroraObj((double) unit.instructions[pc].operand));
+    stack.emplace_back((double) unit.instructions[pc].operand);
     DISPATCH;
     TRUE:
-    stack.push(AuroraObj(true));
+    stack.emplace_back(true);
     DISPATCH;
     FALSE:
-    stack.push(AuroraObj(false));
+    stack.emplace_back(false);
     DISPATCH;
     POP:
-    stack.pop();
+    stack.pop_back();
     DISPATCH;
     ADD:
     {
-        AuroraObj b = stack.top();
-        stack.pop();
-        AuroraObj a = stack.top();
-        stack.pop();
-        if (a.value.index() == 0 && b.value.index() == 0) stack.push(AuroraObj(a.asDouble() + b.asDouble()));
+        AuroraObj b = stack.back();
+        stack.pop_back();
+        AuroraObj a = stack.back();
+        stack.pop_back();
+        if (a.value.index() == 0 && b.value.index() == 0) stack.emplace_back(a.asDouble() + b.asDouble());
         else if (a.value.index() == 1 && b.value.index() == 1)
-            stack.push(AuroraObj(a.asString() + b.asString()));
+            stack.emplace_back(a.asString() + b.asString());
         else throw AuroraException("Invalid operands for +.");
     }
     DISPATCH;
     SUB:
     {
-        AuroraObj b = stack.top();
-        stack.pop();
-        AuroraObj a = stack.top();
-        stack.pop();
-        if (a.value.index() == 0 && b.value.index() == 0) stack.push(AuroraObj(a.asDouble() - b.asDouble()));
+        AuroraObj b = stack.back();
+        stack.pop_back();
+        AuroraObj a = stack.back();
+        stack.pop_back();
+        if (a.value.index() == 0 && b.value.index() == 0) stack.emplace_back(a.asDouble() - b.asDouble());
         else throw AuroraException("Invalid operands for -.");
     }
     DISPATCH;
     MUL:
     {
-        AuroraObj b = stack.top();
-        stack.pop();
-        AuroraObj a = stack.top();
-        stack.pop();
-        if (a.value.index() == 0 && b.value.index() == 0) stack.push(AuroraObj(a.asDouble() * b.asDouble()));
+        AuroraObj b = stack.back();
+        stack.pop_back();
+        AuroraObj a = stack.back();
+        stack.pop_back();
+        if (a.value.index() == 0 && b.value.index() == 0) stack.emplace_back(a.asDouble() * b.asDouble());
         else throw AuroraException("Invalid operands for *.");
     }
     DISPATCH;
     DIV:
     {
-        AuroraObj b = stack.top();
-        stack.pop();
-        AuroraObj a = stack.top();
-        stack.pop();
-        if (a.value.index() == 0 && b.value.index() == 0) stack.push(AuroraObj(a.asDouble() / b.asDouble()));
+        AuroraObj b = stack.back();
+        stack.pop_back();
+        AuroraObj a = stack.back();
+        stack.pop_back();
+        if (a.value.index() == 0 && b.value.index() == 0) stack.emplace_back(a.asDouble() / b.asDouble());
         else throw AuroraException("Invalid operands for /.");
     }
     DISPATCH;
     MOD:
     {
-        AuroraObj b = stack.top();
-        stack.pop();
-        AuroraObj a = stack.top();
-        stack.pop();
-        if (a.value.index() == 0 && b.value.index() == 0) stack.push(AuroraObj(dmod(a.asDouble(), b.asDouble())));
+        AuroraObj b = stack.back();
+        stack.pop_back();
+        AuroraObj a = stack.back();
+        stack.pop_back();
+        if (a.value.index() == 0 && b.value.index() == 0) stack.emplace_back(dmod(a.asDouble(), b.asDouble()));
         else throw AuroraException("Invalid operands for %.");
     }
     DISPATCH;
     NEG:
     {
-        AuroraObj a = stack.top();
-        stack.pop();
-        if (a.value.index() == 0) stack.push(AuroraObj(-a.asDouble()));
+        AuroraObj a = stack.back();
+        stack.pop_back();
+        if (a.value.index() == 0) stack.emplace_back(-a.asDouble());
         else throw AuroraException("Invalid operand for -.");
     }
     DISPATCH;
     NOT:
     {
-        AuroraObj a = stack.top();
-        stack.pop();
-        if (a.value.index() == 2) stack.push(AuroraObj(!a.asBool()));
+        AuroraObj a = stack.back();
+        stack.pop_back();
+        if (a.value.index() == 2) stack.emplace_back(!a.asBool());
         else throw AuroraException("Invalid operand for !.");
     }
     DISPATCH;
     AND:
     {
-        AuroraObj b = stack.top();
-        stack.pop();
-        AuroraObj a = stack.top();
-        stack.pop();
+        AuroraObj b = stack.back();
+        stack.pop_back();
+        AuroraObj a = stack.back();
+        stack.pop_back();
         if (a.value.index() == 2 && b.value.index() == 2)
-            stack.push(AuroraObj(a.asBool() && b.asBool()));
+            stack.emplace_back(a.asBool() && b.asBool());
         else throw AuroraException("Invalid operands for &&.");
     }
     DISPATCH;
     OR:
     {
-        AuroraObj b = stack.top();
-        stack.pop();
-        AuroraObj a = stack.top();
-        stack.pop();
+        AuroraObj b = stack.back();
+        stack.pop_back();
+        AuroraObj a = stack.back();
+        stack.pop_back();
         if (a.value.index() == 2 && b.value.index() == 2)
-            stack.push(AuroraObj(a.asBool() || b.asBool()));
+            stack.emplace_back(a.asBool() || b.asBool());
         else throw AuroraException("Invalid operands for ||.");
     }
     DISPATCH;
     EQ:
     {
-        AuroraObj b = stack.top();
-        stack.pop();
-        AuroraObj a = stack.top();
-        stack.pop();
-        stack.push(AuroraObj(a == b));
+        AuroraObj b = stack.back();
+        stack.pop_back();
+        AuroraObj a = stack.back();
+        stack.pop_back();
+        stack.emplace_back(a == b);
     }
     DISPATCH;
     NEQ:
     {
-        AuroraObj b = stack.top();
-        stack.pop();
-        AuroraObj a = stack.top();
-        stack.pop();
-        stack.push(AuroraObj(a != b));
+        AuroraObj b = stack.back();
+        stack.pop_back();
+        AuroraObj a = stack.back();
+        stack.pop_back();
+        stack.emplace_back(a != b);
     }
     DISPATCH;
     LT:
     {
-        AuroraObj b = stack.top();
-        stack.pop();
-        AuroraObj a = stack.top();
-        stack.pop();
-        if (a.value.index() == 0 && b.value.index() == 0) stack.push(AuroraObj(a.asDouble() < b.asDouble()));
+        AuroraObj b = stack.back();
+        stack.pop_back();
+        AuroraObj a = stack.back();
+        stack.pop_back();
+        if (a.value.index() == 0 && b.value.index() == 0) stack.emplace_back(a.asDouble() < b.asDouble());
         else if (a.value.index() == 1 && b.value.index() == 1)
-            stack.push(AuroraObj(a.asString() < b.asString()));
+            stack.emplace_back(a.asString() < b.asString());
         else throw AuroraException("Invalid operands for <.");
     }
     DISPATCH;
     GT:
     {
-        AuroraObj b = stack.top();
-        stack.pop();
-        AuroraObj a = stack.top();
-        stack.pop();
-        if (a.value.index() == 0 && b.value.index() == 0) stack.push(AuroraObj(a.asDouble() > b.asDouble()));
+        AuroraObj b = stack.back();
+        stack.pop_back();
+        AuroraObj a = stack.back();
+        stack.pop_back();
+        if (a.value.index() == 0 && b.value.index() == 0) stack.emplace_back(a.asDouble() > b.asDouble());
         else if (a.value.index() == 1 && b.value.index() == 1)
-            stack.push(AuroraObj(a.asString() > b.asString()));
+            stack.emplace_back(a.asString() > b.asString());
         else throw AuroraException("Invalid operands for >.");
     }
     DISPATCH;
     LTE:
     {
-        AuroraObj b = stack.top();
-        stack.pop();
-        AuroraObj a = stack.top();
-        stack.pop();
-        if (a.value.index() == 0 && b.value.index() == 0) stack.push(AuroraObj(a.asDouble() <= b.asDouble()));
+        AuroraObj b = stack.back();
+        stack.pop_back();
+        AuroraObj a = stack.back();
+        stack.pop_back();
+        if (a.value.index() == 0 && b.value.index() == 0) stack.emplace_back(a.asDouble() <= b.asDouble());
         else if (a.value.index() == 1 && b.value.index() == 1)
-            stack.push(AuroraObj(a.asString() <= b.asString()));
+            stack.emplace_back(a.asString() <= b.asString());
         else throw AuroraException("Invalid operands for <=.");
     }
     DISPATCH;
     GTE:
     {
-        AuroraObj b = stack.top();
-        stack.pop();
-        AuroraObj a = stack.top();
-        stack.pop();
-        if (a.value.index() == 0 && b.value.index() == 0) stack.push(AuroraObj(a.asDouble() >= b.asDouble()));
+        AuroraObj b = stack.back();
+        stack.pop_back();
+        AuroraObj a = stack.back();
+        stack.pop_back();
+        if (a.value.index() == 0 && b.value.index() == 0) stack.emplace_back(a.asDouble() >= b.asDouble());
         else if (a.value.index() == 1 && b.value.index() == 1)
-            stack.push(AuroraObj(a.asString() >= b.asString()));
+            stack.emplace_back(a.asString() >= b.asString());
         else throw AuroraException("Invalid operands for >=.");
     }
     DISPATCH;
     IF:
     {
-        AuroraCodeUnit then = stack.top().asCodeUnit();
-        stack.pop();
-        AuroraCodeUnit else_ = stack.top().asCodeUnit();
-        stack.pop();
-        AuroraObj cond = stack.top();
-        stack.pop();
+        AuroraCodeUnit then = stack.back().asCodeUnit();
+        stack.pop_back();
+        AuroraCodeUnit else_ = stack.back().asCodeUnit();
+        stack.pop_back();
+        AuroraObj cond = stack.back();
+        stack.pop_back();
         if (cond.value.index() == 2) {
             locals.emplace_back();
             if (cond.asBool()) execute(then);
@@ -834,80 +845,76 @@ AuroraObj AuroraContext::execute(AuroraCodeUnit unit) {
     DISPATCH;
     WLOOP:
     {
-        AuroraCodeUnit body = stack.top().asCodeUnit();
-        stack.pop();
-        AuroraCodeUnit cond = stack.top().asCodeUnit();
-        stack.pop();
+        AuroraCodeUnit body = stack.back().asCodeUnit();
+        stack.pop_back();
+        AuroraCodeUnit cond = stack.back().asCodeUnit();
+        stack.pop_back();
+        locals.emplace_back();
         while (execute(cond).asBool()) {
             try {
-                locals.emplace_back();
                 execute(body);
-                locals.pop_back();
+                locals.back().clear();
             } catch (InternalAuroraException &e) {
                 if (e.type == InternalAuroraException::Type::BREAK) {
-                    locals.pop_back();
                     break;
                 } else if (e.type == InternalAuroraException::Type::CONTINUE) {
-                    locals.pop_back();
                     continue;
                 }
             }
         }
+        locals.pop_back();
     }
     DISPATCH;
     FLOOP:
     {
-        AuroraCodeUnit body = stack.top().asCodeUnit();
-        stack.pop();
-        AuroraObj iter = stack.top();
-        stack.pop();
+        AuroraCodeUnit body = stack.back().asCodeUnit();
+        stack.pop_back();
+        AuroraObj iter = stack.back();
+        stack.pop_back();
         auto name = unit.constants[unit.instructions[pc].operand].asString();
         if (iter.value.index() == 3) {
+            locals.emplace_back();
             for (auto &i: iter.asVector()) {
                 try {
-                    locals.emplace_back();
+                    locals.back().clear();
                     locals.back().emplace(name, i);
                     execute(body);
-                    locals.pop_back();
                 } catch (InternalAuroraException &e) {
                     if (e.type == InternalAuroraException::Type::BREAK) {
-                        locals.pop_back();
                         break;
                     } else if (e.type == InternalAuroraException::Type::CONTINUE) {
-                        locals.pop_back();
                         continue;
                     }
                 }
             }
         } else if (iter.value.index() == 1) {
+            locals.emplace_back();
             for (auto &i: iter.asString()) {
                 try {
-                    locals.emplace_back();
+                    locals.back().clear();
                     locals.back().emplace(name, AuroraObj(std::string(1, i)));
                     execute(body);
-                    locals.pop_back();
                 } catch (InternalAuroraException &e) {
                     if (e.type == InternalAuroraException::Type::BREAK) {
-                        locals.pop_back();
                         break;
                     } else if (e.type == InternalAuroraException::Type::CONTINUE) {
-                        locals.pop_back();
                         continue;
                     }
                 }
             }
         } else throw AuroraException("Invalid operand for for.");
+        locals.pop_back();
     }
     DISPATCH;
     CALL:
     {
         std::vector<AuroraObj> args{};
         for (int i = 0; i < unit.instructions[pc].operand; i++) {
-            args.insert(args.begin(), stack.top());
-            stack.pop();
+            args.insert(args.begin(), stack.back());
+            stack.pop_back();
         }
-        auto fnObj = stack.top();
-        stack.pop();
+        auto fnObj = stack.back();
+        stack.pop_back();
         if (fnObj.value.index() == 4) {
             auto fn = fnObj.asFunction();
             auto tmpLocals = locals;
@@ -922,53 +929,53 @@ AuroraObj AuroraContext::execute(AuroraCodeUnit unit) {
             } catch (AuroraReturnException &e) {
                 retVal = e.value;
             }
-            stack.push(retVal);
+            stack.emplace_back(retVal);
             locals = tmpLocals;
         } else if (fnObj.value.index() == 7) {
             auto fn = fnObj.asNativeFunction();
-            stack.push(fn(args));
+            stack.emplace_back(fn(args));
         } else throw AuroraException("Invalid operand for call.");
     }
     DISPATCH;
     RET:
-    throw AuroraReturnException(stack.top());
+    throw AuroraReturnException(stack.back());
     RES:
-    return stack.top();
+    return stack.back();
     LOAD:
-    stack.push(lookupVariable(unit.constants[unit.instructions[pc].operand].asString()));
+    stack.emplace_back(lookupVariable(unit.constants[unit.instructions[pc].operand].asString()));
     DISPATCH;
     STORE:
-    setVariable(unit.constants[unit.instructions[pc].operand].asString(), stack.top());
-    stack.pop();
+    setVariable(unit.constants[unit.instructions[pc].operand].asString(), stack.back());
+    stack.pop_back();
     DISPATCH;
     IDX:
     {
-        AuroraObj a = stack.top();
-        stack.pop();
-        AuroraObj b = stack.top();
-        stack.pop();
-        if (b.value.index() == 3 && a.value.index() == 0) stack.push(b.asVector()[a.asDouble()]);
+        AuroraObj a = stack.back();
+        stack.pop_back();
+        AuroraObj b = stack.back();
+        stack.pop_back();
+        if (b.value.index() == 3 && a.value.index() == 0) stack.emplace_back(b.asVector()[a.asDouble()]);
         else if (b.value.index() == 1 && a.value.index() == 0)
-            stack.push(AuroraObj(std::string(1, b.asString()[a.asDouble()])));
+            stack.emplace_back(std::string(1, b.asString()[a.asDouble()]));
         else throw AuroraException("Invalid operands for indexing.");
     }
     DISPATCH;
     SETIDX:
     {
-        AuroraObj a = stack.top();
-        stack.pop();
-        AuroraObj c = stack.top();
-        stack.pop();
-        AuroraObj b = stack.top();
-        stack.pop();
+        AuroraObj a = stack.back();
+        stack.pop_back();
+        AuroraObj c = stack.back();
+        stack.pop_back();
+        AuroraObj b = stack.back();
+        stack.pop_back();
         if (a.value.index() == 3 && b.value.index() == 0) {
             auto newVec = a.asVector();
             newVec.at(b.asDouble()) = c;
-            stack.push(AuroraObj(newVec));
+            stack.emplace_back(newVec);
         } else if (a.value.index() == 1 && b.value.index() == 0) {
             auto newStr = a.asString();
             newStr.at(b.asDouble()) = c.asString()[0];
-            stack.push(AuroraObj(newStr));
+            stack.emplace_back(newStr);
         } else throw AuroraException("Invalid operands for indexing.");
     }
     DISPATCH;
@@ -977,17 +984,17 @@ AuroraObj AuroraContext::execute(AuroraCodeUnit unit) {
     CONTINUE:
     throw InternalAuroraException(InternalAuroraException::Type::CONTINUE);
     DUP:
-    stack.push(stack.top());
+    stack.emplace_back(stack.back());
     DISPATCH;
     LIST:
     {
         std::vector<AuroraObj> list;
         for (int i = 0; i < unit.instructions[pc].operand; i++) {
-            list.push_back(stack.top());
-            stack.pop();
+            list.emplace_back(stack.back());
+            stack.pop_back();
         }
         std::reverse(list.begin(), list.end());
-        stack.push(AuroraObj(list));
+        stack.emplace_back(list);
     }
     DISPATCH;
     END:
